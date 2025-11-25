@@ -1,6 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import svgPaths from "../imports/svg-v7ovcq1vez";
 import clsx from "clsx";
+
+// Import Supabase integration
+import { useOrder } from '../hooks/useOrder';
+import { CartItem as DBCartItem, CustomerInfo as DBCustomerInfo } from '../types/database.types';
+import { InlineLoadingSpinner } from '../components/shared/LoadingSpinner';
+import { InlineErrorMessage } from '../components/shared/ErrorMessage';
 
 interface CartItem {
   id: number;
@@ -11,26 +17,122 @@ interface CartItem {
   quantity: number;
 }
 
+interface CustomerInfo {
+  fullName: string;
+  zipCode: string;
+  address: string;
+  detailedAddress: string;
+  city?: string;
+  country?: string;
+  state?: string;
+}
+
+interface PaymentInfo {
+  cardNumber: string;
+  expiryDate: string;
+  cvv: string;
+  cardholderName?: string;  // 선택적 필드
+  useBillingAddress: boolean;
+  billingZipCode?: string;
+  billingAddress?: string;
+  billingDetailedAddress?: string;
+}
+
 interface ConfirmationPageProps {
   cartItems: CartItem[];
+  customerInfo: CustomerInfo;
+  paymentInfo: PaymentInfo;
   cartCount: number;
   onBack: () => void;
   onMenuClick: () => void;
   onUpdateQuantity: (productId: number, quantity: number) => void;
-  onCompletePurchase: () => void;
+  onCompletePurchase: (orderNumber: string) => void;
 }
 
 export default function ConfirmationPage({
   cartItems,
+  customerInfo,
+  paymentInfo,
   cartCount,
   onBack,
   onMenuClick,
   onUpdateQuantity,
   onCompletePurchase
 }: ConfirmationPageProps) {
+  const { createOrder, loading, error } = useOrder();
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+
   const subtotal = cartItems.reduce((sum, item) => sum + (item.priceValue * item.quantity), 0);
   const shipping = 0.00;
   const total = subtotal + shipping;
+
+  // Handle order completion with improved error handling
+  const handleCompletePurchase = async () => {
+    // 중복 호출 방지
+    if (isProcessing || loading) {
+      console.log('Already processing order...');
+      return;
+    }
+
+    // 유효성 검증
+    if (!cartItems.length) {
+      setLocalError('장바구니가 비어있습니다.');
+      return;
+    }
+
+    if (!customerInfo.fullName || !customerInfo.zipCode || !customerInfo.address) {
+      setLocalError('배송 정보가 완전하지 않습니다.');
+      return;
+    }
+
+    setIsProcessing(true);
+    setLocalError(null);
+
+    try {
+      // Convert CartItem[] to DBCartItem[]
+      const dbCartItems: DBCartItem[] = cartItems.map(item => ({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        priceValue: item.priceValue,
+        image: item.image,
+        quantity: item.quantity,
+      }));
+
+      // Convert CustomerInfo to DBCustomerInfo
+      const dbCustomerInfo: DBCustomerInfo = {
+        fullName: customerInfo.fullName,
+        zipCode: customerInfo.zipCode,
+        address: customerInfo.address,
+        detailedAddress: customerInfo.detailedAddress,
+        city: customerInfo.city,
+        country: customerInfo.country,
+        state: customerInfo.state,
+      };
+
+      // Create order in Supabase
+      const order = await createOrder(dbCustomerInfo, dbCartItems);
+
+      if (order) {
+        // Order created successfully
+        console.log('Order created:', order.id);
+        onCompletePurchase(order.id);
+      } else {
+        // Order creation failed but no error thrown
+        setLocalError('주문 생성에 실패했습니다. 다시 시도해주세요.');
+      }
+    } catch (err) {
+      console.error('Order creation failed:', err);
+      setLocalError(
+        err instanceof Error 
+          ? err.message 
+          : '주문 처리 중 오류가 발생했습니다. 다시 시도해주세요.'
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   return (
     <div className="bg-[#ffffff] relative size-full">
@@ -109,7 +211,11 @@ export default function ConfirmationPage({
       </div>
       
       {/* Footer */}
-      <Footer onCompletePurchase={onCompletePurchase} />
+      <Footer 
+        onCompletePurchase={handleCompletePurchase} 
+        loading={loading || isProcessing}
+        error={error || localError}
+      />
     </div>
   );
 }
@@ -206,33 +312,54 @@ function ProgressIndicators() {
 
 interface FooterProps {
   onCompletePurchase: () => void;
+  loading: boolean;
+  error: string | null;
 }
 
-function Footer({ onCompletePurchase }: FooterProps) {
+function Footer({ onCompletePurchase, loading, error }: FooterProps) {
   return (
     <div className="absolute bg-[#ffffff] bottom-0 h-[124px] left-0 overflow-clip right-0 shadow-[0px_0px_20px_0px_rgba(0,0,0,0.1)]">
+      {/* Error Message */}
+      {error && (
+        <div className="absolute left-6 right-6 top-2">
+          <InlineErrorMessage message={error} type="server" />
+        </div>
+      )}
+
       {/* Complete Purchase Button */}
       <button
         onClick={onCompletePurchase}
-        className="absolute bg-[#E07B39] left-6 right-6 rounded-lg top-6"
+        disabled={loading}
+        className={clsx(
+          "absolute left-6 right-6 rounded-lg top-6",
+          loading ? "bg-[#cccccc] cursor-not-allowed" : "bg-[#E07B39] hover:bg-[#d06f30]"
+        )}
       >
         <div className="flex flex-row items-center relative size-full">
           <div className="box-border content-stretch flex flex-row gap-2 items-center justify-start pl-6 pr-4 py-2 relative w-full">
-            <div className="basis-0 flex flex-col font-['Inter:Regular',_sans-serif] font-normal grow justify-center leading-[0] min-h-px min-w-px not-italic relative shrink-0 text-[#ffffff] text-[16px] text-left tracking-[-0.16px]">
-              <p className="block leading-[24px]">주문 완료</p>
-            </div>
-            <div className="relative shrink-0 size-8">
-              <svg
-                className="block size-full"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 32 32"
-              >
-                <g>
-                  <path d={svgPaths.p3d7c1f80} fill="var(--fill-0, white)" />
-                </g>
-              </svg>
-            </div>
+            {loading ? (
+              <div className="basis-0 flex flex-col grow justify-center items-center min-h-px min-w-px relative shrink-0">
+                <InlineLoadingSpinner message="주문 생성 중..." />
+              </div>
+            ) : (
+              <>
+                <div className="basis-0 flex flex-col font-['Inter:Regular',_sans-serif] font-normal grow justify-center leading-[0] min-h-px min-w-px not-italic relative shrink-0 text-[#ffffff] text-[16px] text-left tracking-[-0.16px]">
+                  <p className="block leading-[24px]">주문 완료</p>
+                </div>
+                <div className="relative shrink-0 size-8">
+                  <svg
+                    className="block size-full"
+                    fill="none"
+                    preserveAspectRatio="none"
+                    viewBox="0 0 32 32"
+                  >
+                    <g>
+                      <path d={svgPaths.p3d7c1f80} fill="var(--fill-0, white)" />
+                    </g>
+                  </svg>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </button>

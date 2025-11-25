@@ -2,32 +2,47 @@ import React, { useState } from 'react';
 import svgPaths from "../imports/svg-toln6of0ig";
 import { Input } from './ui/input';
 
+interface PaymentFormData {
+  cardNumber: string;
+  expiryDate: string;
+  cvv: string;
+  cardholderName: string;
+  useBillingAddress: boolean;
+  billingZipCode?: string;
+  billingAddress?: string;
+  billingDetailedAddress?: string;
+}
+
 interface PaymentPageProps {
   cartCount: number;
   onBack: () => void;
   onMenuClick: () => void;
-  onProceedToConfirmation: () => void;
-}
-
-interface PaymentFormData {
-  cardNumber: string;
-  expiryDate: string;
-  ccv: string;
-  useBillingAddress: boolean;
+  onProceedToConfirmation: (paymentInfo: PaymentFormData) => void;
 }
 
 export default function PaymentPage({ cartCount, onBack, onMenuClick, onProceedToConfirmation }: PaymentPageProps) {
   const [formData, setFormData] = useState<PaymentFormData>({
     cardNumber: '',
     expiryDate: '',
-    ccv: '',
-    useBillingAddress: true
+    cvv: '',
+    cardholderName: '',
+    useBillingAddress: true,
+    billingZipCode: '',
+    billingAddress: '',
+    billingDetailedAddress: ''
   });
 
   // Check if all required fields are filled
   const isFormValid = formData.cardNumber.trim() !== '' &&
                      formData.expiryDate.trim() !== '' &&
-                     formData.ccv.trim() !== '';
+                     formData.cvv.trim() !== '';
+  // Note: cardholderName은 선택적 필드로 유효성 검사에서 제외
+  
+  const handleProceedToConfirmation = () => {
+    if (isFormValid) {
+      onProceedToConfirmation(formData);
+    }
+  };
 
   const updateFormField = (field: keyof PaymentFormData, value: string | boolean) => {
     setFormData(prev => ({
@@ -67,7 +82,7 @@ export default function PaymentPage({ cartCount, onBack, onMenuClick, onProceedT
   const handleCcvChange = (value: string) => {
     // Only allow digits and limit to 4 characters
     const digits = value.replace(/\D/g, '').substring(0, 4);
-    updateFormField('ccv', digits);
+    updateFormField('cvv', digits);
   };
 
   return (
@@ -138,7 +153,7 @@ export default function PaymentPage({ cartCount, onBack, onMenuClick, onProceedT
             <div className="flex-1">
               <FormField label="CCV">
                 <Input
-                  value={formData.ccv}
+                  value={formData.cvv}
                   onChange={(e) => handleCcvChange(e.target.value)}
                   placeholder="123"
                   className="bg-[#ffffff] border border-neutral-200 rounded-lg px-4 py-3 w-full font-['Inter:Regular',_sans-serif] text-[16px] text-[#000000]"
@@ -180,7 +195,7 @@ export default function PaymentPage({ cartCount, onBack, onMenuClick, onProceedT
       {/* Footer */}
       <Footer 
         isFormValid={isFormValid}
-        onProceedToConfirmation={onProceedToConfirmation}
+        onProceedToConfirmation={handleProceedToConfirmation}
       />
     </div>
   );

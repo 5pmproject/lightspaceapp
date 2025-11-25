@@ -2,6 +2,7 @@ import React from 'react';
 import svgPaths from "../imports/svg-x4vilrsbuo";
 
 interface OrderConfirmationPageProps {
+  orderNumber: string;
   cartCount: number;
   customerInfo: CustomerInfo;
   onShop: () => void;
@@ -18,7 +19,7 @@ interface CustomerInfo {
   state?: string;
 }
 
-export default function OrderConfirmationPage({ cartCount, customerInfo, onShop, onMenuClick }: OrderConfirmationPageProps) {
+export default function OrderConfirmationPage({ orderNumber, cartCount, customerInfo, onShop, onMenuClick }: OrderConfirmationPageProps) {
   // Generate estimated delivery date (3-5 business days from now)
   const getEstimatedDelivery = () => {
     const today = new Date();
@@ -77,6 +78,18 @@ export default function OrderConfirmationPage({ cartCount, customerInfo, onShop,
               </p>
             </div>
           </div>
+
+          {/* Order Number */}
+          {orderNumber && (
+            <div className="bg-[#f8f9fa] rounded-lg p-4">
+              <h3 className="font-['Inter:Regular',_sans-serif] text-[14px] text-[#757575] tracking-[-0.14px] leading-[24px] mb-2">
+                주문 번호
+              </h3>
+              <p className="font-['Inter:Medium',_sans-serif] text-[16px] text-[#E07B39] tracking-[-0.16px] leading-[24px]">
+                {orderNumber}
+              </p>
+            </div>
+          )}
 
           {/* Order Details */}
           <div className="bg-[#f8f9fa] rounded-lg p-4 space-y-4">

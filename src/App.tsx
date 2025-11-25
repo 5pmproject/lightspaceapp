@@ -12,8 +12,22 @@ import PlaceholderPage from './components/PlaceholderPage';
 import AddToCartOverlay from './components/AddToCartOverlay';
 import Menu from './components/Menu';
 
-// Enhanced product data with descriptions and locations
-const PRODUCTS = [
+// Import hooks and components for Supabase integration
+import { useProducts } from './hooks/useProducts';
+import LoadingSpinner from './components/shared/LoadingSpinner';
+import ErrorMessage from './components/shared/ErrorMessage';
+
+// Import types and utilities
+import { toProductDisplay, toCartItem, Product } from './types/database.types';
+import { formatPrice } from './utils/formatters';
+
+// ============================================================================
+// REMOVED: Hard-coded PRODUCTS array
+// Now fetching from Supabase via useProducts hook
+// ============================================================================
+
+// Legacy PRODUCTS array structure for reference:
+const LEGACY_PRODUCTS = [
   {
     id: 1,
     name: "스칸디나비아 펜던트 조명",
@@ -164,7 +178,11 @@ const PRODUCTS = [
     location: "이탈리아 밀라노, 아르코 라보라토리",
     dietary: ["글라스", "메탈라인", "펜던트"]
   }
-];
+] as const;
+
+// ============================================================================
+// Application Types
+// ============================================================================
 
 type SortOption = 'default' | 'a-z' | 'price';
 type ViewMode = 'list' | 'detail' | 'basket' | 'checkout' | 'payment' | 'confirmation' | 'orderConfirmation' | 'newsstand' | 'about' | 'profile';
@@ -194,21 +212,79 @@ interface CustomerInfo {
   state?: string;
 }
 
+// ============================================================================
+// Product Display Type (for UI compatibility)
+// ============================================================================
+interface ProductDisplay {
+  id: number;
+  name: string;
+  price: string;
+  priceValue: number;
+  farm: string;
+  images: string[];
+  isFavorite: boolean;
+  description: string;
+  location: string;
+  dietary: string[];
+}
+
 export default function App() {
+  // ============================================================================
+  // Supabase Data Integration
+  // ============================================================================
+  const { 
+    products: dbProducts, 
+    loading: productsLoading, 
+    error: productsError, 
+    refetch: refetchProducts 
+  } = useProducts();
+
+  // Transform DB products to UI format
+  // Note: DB에서 받은 데이터를 UI 레이어 타입으로 변환
+  const products = useMemo(() => {
+    return dbProducts.map((product): ProductDisplay => ({
+      id: product.id,
+      name: product.name,
+      price: formatPrice(product.price),
+      priceValue: product.price,
+      farm: product.farm,
+      images: product.images,
+      isFavorite: product.is_favorite,
+      description: product.description,
+      location: product.location,
+      dietary: product.dietary,
+    }));
+  }, [dbProducts]);
+
+  // ============================================================================
+  // Application State
+  // ============================================================================
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOption, setSortOption] = useState<SortOption>('default');
   const [isNavOpen, setIsNavOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
-  const [selectedProduct, setSelectedProduct] = useState<typeof PRODUCTS[0] | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<ProductDisplay | null>(null);
+  const [orderNumber, setOrderNumber] = useState<string>('');
   
-  // Customer information from checkout
+  // Customer and payment information from checkout
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo>({
     fullName: '',
     zipCode: '',
     address: '',
     detailedAddress: ''
+  });
+  
+  const [paymentInfo, setPaymentInfo] = useState({
+    cardNumber: '',
+    expiryDate: '',
+    cvv: '',
+    cardholderName: '',
+    useBillingAddress: true,
+    billingZipCode: '',
+    billingAddress: '',
+    billingDetailedAddress: ''
   });
   
   // Add to cart overlay state
@@ -218,32 +294,72 @@ export default function App() {
 
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
+  // ============================================================================
+  // Product Filtering and Sorting
+  // ============================================================================
   const filteredAndSortedProducts = useMemo(() => {
-    let filtered = PRODUCTS.filter(product =>
+    // 배열 복사로 원본 mutation 방지
+    let filtered = [...products].filter(product =>
       product.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     switch (sortOption) {
       case 'a-z':
-        return filtered.sort((a, b) => a.name.localeCompare(b.name));
+        // sort는 원본을 변경하므로 복사 후 정렬
+        return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
       case 'price':
-        return filtered.sort((a, b) => a.priceValue - b.priceValue);
+        return [...filtered].sort((a, b) => a.priceValue - b.priceValue);
       default:
         return filtered;
     }
-  }, [searchTerm, sortOption]);
+  }, [products, searchTerm, sortOption]);
 
-  const toggleFavorite = (productId: number) => {
-    const newFavorites = new Set(favorites);
-    if (newFavorites.has(productId)) {
-      newFavorites.delete(productId);
-    } else {
-      newFavorites.add(productId);
+  // ============================================================================
+  // Favorites Management (낙관적 업데이트 패턴)
+  // TODO: Integrate with Supabase favorites table for persistence
+  // 참고: https://supabase.com/docs/guides/realtime/postgres-changes
+  // ============================================================================
+  const toggleFavorite = async (productId: number) => {
+    const wasFavorite = favorites.has(productId);
+    
+    // 1. 낙관적 업데이트: UI 먼저 변경
+    setFavorites(prev => {
+      const next = new Set(prev);
+      if (wasFavorite) {
+        next.delete(productId);
+      } else {
+        next.add(productId);
+      }
+      return next;
+    });
+
+    // 2. 서버에 요청 (추후 Supabase 연동 시 활성화)
+    try {
+      // TODO: Supabase favorites API 호출
+      // if (wasFavorite) {
+      //   await favoriteService.remove(productId, userId, sessionId);
+      // } else {
+      //   await favoriteService.add(productId, userId, sessionId);
+      // }
+    } catch (error) {
+      // 3. 실패 시 롤백
+      console.error('Failed to toggle favorite:', error);
+      setFavorites(prev => {
+        const next = new Set(prev);
+        if (wasFavorite) {
+          next.add(productId); // 원래 상태로 복구
+        } else {
+          next.delete(productId);
+        }
+        return next;
+      });
     }
-    setFavorites(newFavorites);
   };
 
-  const showAddToCartOverlay = (product: typeof PRODUCTS[0], quantity = 1) => {
+  // ============================================================================
+  // Cart Management
+  // ============================================================================
+  const showAddToCartOverlay = (product: ProductDisplay, quantity = 1) => {
     setOverlayProduct({
       id: product.id,
       name: product.name,
@@ -262,7 +378,7 @@ export default function App() {
     let targetProduct;
     
     if (productId) {
-      targetProduct = PRODUCTS.find(p => p.id === productId);
+      targetProduct = products.find(p => p.id === productId);
     } else if (selectedProduct) {
       targetProduct = selectedProduct;
     }
@@ -308,8 +424,10 @@ export default function App() {
     }
   };
 
-  // Navigation handlers
-  const handleProductClick = (product: typeof PRODUCTS[0]) => {
+  // ============================================================================
+  // Navigation Handlers
+  // ============================================================================
+  const handleProductClick = (product: ProductDisplay) => {
     setSelectedProduct(product);
     setViewMode('detail');
   };
@@ -344,7 +462,8 @@ export default function App() {
     setViewMode('checkout');
   };
 
-  const handleProceedToConfirmation = () => {
+  const handleProceedToConfirmation = (payment: typeof paymentInfo) => {
+    setPaymentInfo(payment);
     setViewMode('confirmation');
   };
 
@@ -352,8 +471,9 @@ export default function App() {
     setViewMode('payment');
   };
 
-  const handleCompletePurchase = () => {
+  const handleCompletePurchase = (orderNum: string) => {
     // Show order confirmation and clear cart
+    setOrderNumber(orderNum);
     setViewMode('orderConfirmation');
     setCartItems([]);
   };
@@ -361,12 +481,23 @@ export default function App() {
   const handleShopFromOrderConfirmation = () => {
     setViewMode('list');
     setSelectedProduct(null);
-    // Reset customer info for new order
+    setOrderNumber('');
+    // Reset customer info and payment info for new order
     setCustomerInfo({
       fullName: '',
       zipCode: '',
       address: '',
       detailedAddress: ''
+    });
+    setPaymentInfo({
+      cardNumber: '',
+      expiryDate: '',
+      cvv: '',
+      cardholderName: '',
+      useBillingAddress: true,
+      billingZipCode: '',
+      billingAddress: '',
+      billingDetailedAddress: ''
     });
   };
 
@@ -375,8 +506,27 @@ export default function App() {
     setSelectedProduct(null);
   };
 
-  // Render current view based on viewMode
+  // ============================================================================
+  // View Rendering
+  // ============================================================================
   const renderCurrentView = () => {
+    // Show loading state (products만 체크 - favorites는 백그라운드 로드)
+    if (productsLoading && viewMode === 'list') {
+      return <LoadingSpinner message="상품을 불러오는 중..." fullScreen />;
+    }
+
+    // Show error state
+    if (productsError && viewMode === 'list') {
+      return (
+        <ErrorMessage 
+          message={productsError} 
+          type="network"
+          onRetry={refetchProducts}
+          fullScreen 
+        />
+      );
+    }
+
     switch (viewMode) {
       case 'list':
         return (
@@ -444,6 +594,8 @@ export default function App() {
         return (
           <ConfirmationPage
             cartItems={cartItems}
+            customerInfo={customerInfo}
+            paymentInfo={paymentInfo}
             cartCount={cartCount}
             onBack={handleBackFromConfirmation}
             onMenuClick={() => setIsNavOpen(true)}
@@ -455,6 +607,7 @@ export default function App() {
       case 'orderConfirmation':
         return (
           <OrderConfirmationPage
+            orderNumber={orderNumber}
             cartCount={0} // Cart is cleared after purchase
             customerInfo={customerInfo}
             onShop={handleShopFromOrderConfirmation}
