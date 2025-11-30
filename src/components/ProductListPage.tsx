@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import StatusBar from './shared/StatusBar';
 import svgPaths from "../imports/svg-s5y93igtx2";
 import clsx from "clsx";
 import { Input } from './ui/input';
+import { useABTest } from '../hooks/useABTest';
 
 interface Product {
   id: number;
@@ -247,6 +248,21 @@ interface ContentProps {
 }
 
 function Content({ products, favorites, onToggleFavorite, onAddToCart, onProductClick }: ContentProps) {
+  // A/B 테스트: 가격 폰트 사이즈 실험
+  const { variant, trackEvent } = useABTest('price_font_size_experiment', {
+    debug: true,  // 디버그 모드 활성화
+    autoTrackExposure: true
+  });
+  
+  // 리스트 페이지 뷰 추적
+  useEffect(() => {
+    if (variant && products.length > 0) {
+      trackEvent('product_list_view', {
+        product_count: products.length
+      });
+    }
+  }, [variant, products.length, trackEvent]);
+  
   return (
     <div className="absolute left-0 right-0 top-[225px] bottom-4 overflow-y-auto">
       <div className="box-border content-stretch flex flex-col gap-4 items-start justify-start relative w-full px-6 py-3">
@@ -258,6 +274,8 @@ function Content({ products, favorites, onToggleFavorite, onAddToCart, onProduct
             onToggleFavorite={() => onToggleFavorite(product.id)}
             onAddToCart={() => onAddToCart(product.id)}
             onClick={() => onProductClick(product)}
+            abTestVariant={variant}
+            trackEvent={trackEvent}
           />
         ))}
       </div>
@@ -271,9 +289,23 @@ interface ProductCardProps {
   onToggleFavorite: () => void;
   onAddToCart: () => void;
   onClick: () => void;
+  abTestVariant?: 'control' | 'variant' | null;
+  trackEvent?: (eventType: string, eventData?: any) => void;
 }
 
-function ProductCard({ product, isFavorite, onToggleFavorite, onAddToCart, onClick }: ProductCardProps) {
+function ProductCard({ product, isFavorite, onToggleFavorite, onAddToCart, onClick, abTestVariant, trackEvent }: ProductCardProps) {
+  // 상품 클릭 시 이벤트 추적
+  const handleProductClick = () => {
+    if (trackEvent && abTestVariant) {
+      trackEvent('product_detail_click', {
+        product_id: product.id,
+        product_name: product.name,
+        product_price: product.priceValue
+      });
+    }
+    onClick();
+  };
+  
   return (
     <div className="bg-[#ffffff] relative shadow-[0px_0px_20px_0px_rgba(0,0,0,0.1)] shrink-0 w-full rounded-[12px]">
       <div className="box-border content-stretch flex flex-row items-start justify-start overflow-clip p-0 relative w-full">
@@ -284,13 +316,13 @@ function ProductCard({ product, isFavorite, onToggleFavorite, onAddToCart, onCli
             backgroundImage: `url('${product.images[0]}')${product.images[1] ? `, url('${product.images[1]}')` : ''}`,
             backgroundSize: 'cover'
           }}
-          onClick={onClick}
+          onClick={handleProductClick}
         >
           <div className="absolute border-[px_1px_0px_0px] border-[rgba(0,0,0,0.1)] border-solid inset-0 pointer-events-none" />
         </div>
         
         {/* Product Info */}
-        <div className="basis-0 grow min-h-px min-w-px relative self-stretch shrink-0 cursor-pointer" onClick={onClick}>
+        <div className="basis-0 grow min-h-px min-w-px relative self-stretch shrink-0 cursor-pointer" onClick={handleProductClick}>
           <div className="flex flex-col justify-center relative size-full">
             <div className="box-border content-stretch flex flex-col gap-1 items-start justify-center pl-4 pr-8 py-4 relative size-full">
               <div className="relative shrink-0 w-full">
@@ -299,7 +331,13 @@ function ProductCard({ product, isFavorite, onToggleFavorite, onAddToCart, onCli
                     <p className="leading-[16px] text-[14px]">
                       {product.name}
                       <br />
-                      <span className="text-[#E07B39]">{product.price}</span>
+                      <span className={clsx(
+                        "text-[#E07B39]",
+                        // A/B 테스트: Variant는 폰트 크기 16px + font-semibold
+                        abTestVariant === 'variant' ? "text-[16px] font-semibold" : "text-[14px]"
+                      )}>
+                        {product.price}
+                      </span>
                     </p>
                   </div>
                   <div className="css-415rgs relative shrink-0 text-[#757575] text-[12px] text-nowrap">
